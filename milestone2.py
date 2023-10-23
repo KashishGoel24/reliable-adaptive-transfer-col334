@@ -6,7 +6,7 @@ import hashlib
 import math
 # import matplotlib.pyplot as plt
 
-server = "vayu.iitd.ac.in"
+server = "127.0.0.1"
 port = 9801
 serverAddressPort = (server, port)
 bufferSize = 4096
@@ -20,10 +20,10 @@ reply_offset = []
 re_request_offset = []
 re_request_time = []
 
-inTransitSize = 50
+inTransitSize = 10
 rate = 1/inTransitSize #time b/w diff messages in seconds
-partition_begin = 0
-timeout = 0.01  # the time to wait to loop through the inTransit set again
+
+timeout = 0.1  # the time to wait to loop through the inTransit set again
 lastReceivedPartiitonSetSize = 0
 
 def sendSizeReq():
@@ -61,38 +61,36 @@ def getTotalSize():
 def rateIncrease():
     global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartiitonSetSize
     print("running this functionnnnnnnnnn")
-    lastCount = 0
-    while True:
+    # lastCount = 0
+    # while True:
+    if (len(inTransit) <= inTransitSize ):
+        inTransitSize += 1
+        rate = 1/inTransitSize
         # print("length of received partition set ",len(receivedPartitionSet)," last count is ",lastCount)
         # print("length of the receied partiiton set is ",len(receivedPartitionSet)," last received partition set size is ",lastReceivedPartiitonSetSize)
-        if ((len(receivedPartitionSet) - lastReceivedPartiitonSetSize) % inTransitSize == 0) and (len(inTransit) <= inTransitSize):
-            lastReceivedPartiitonSetSize = len(receivedPartitionSet)
-            # with inTransitlock:
-            inTransitSize += 1
-            print("rate increased new rate from ",rate, " to ", 1/inTransitSize)
-            rate = 1/inTransitSize
-        if len(remainingPartitions) == 0:
-            break
-        time.sleep(0.01)
+        # if ((len(receivedPartitionSet) - lastReceivedPartiitonSetSize) % inTransitSize == 0) and (len(inTransit) <= inTransitSize) and (len(receivedPartitionSet) != 0): 
+        #     lastReceivedPartiitonSetSize = len(receivedPartitionSet)
+        #     # with inTransitlock:
+        #     inTransitSize += 1
+        #     print("rate increased new rate from ",rate, " to ", 1/inTransitSize)
+        #     print("new intranit window size ",inTransitSize)
+        #     rate = 1/inTransitSize
+        # if len(remainingPartitions) == 0:
+        #     break
+        # time.sleep(0.1)
 
 def sendToSever(): 
-    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, partition_begin, timeout
+    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout
     inTransit = set()
     while (len(remainingPartitions) > 0):
         for u in remainingPartitions:
             print("running rate of sending request rn is ",rate)
             print("inTransit window maximum size allowed ",inTransitSize)
             # print("printing the length of the list of remaining partititions : ", len(remainingPartitions))
-            begin = time.time()
-            message = f"Offset: {u*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*u))}\n\n"
-            UDPsocket.sendto(message.encode(), serverAddressPort)
-
-            with inTransitlock:
-                inTransit.add(u)
-                
-            while len(inTransit) > inTransitSize:
-                time.sleep(timeout)
+            
+            if len(inTransit) > inTransitSize:
                 for j in range (2):
+                    time.sleep(timeout)
                     with inTransitlock:
                         for i in inTransit:
                             message = f"Offset: {i*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*i))}\n\n"
@@ -103,12 +101,19 @@ def sendToSever():
                     if inTransitSize == 0:
                         inTransitSize = 1
                     print("rate is being decreasedddddddddddddddd")
-
-            end = time.time()
-            # if (len(remainingPartitions) == 1):
-            #     time.sleep(0.1)
-            if (end-begin < rate):
-                time.sleep(rate-(end-begin))
+            
+            else:
+                begin = time.time()
+                message = f"Offset: {u*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*u))}\n\n"
+                UDPsocket.sendto(message.encode(), serverAddressPort)
+                with inTransitlock:
+                    inTransit.add(u)
+            
+                end = time.time()
+                # if (len(remainingPartitions) == 1):
+                #     time.sleep(0.1)
+                if (end-begin < rate):
+                    time.sleep(rate-(end-begin))
         remainingPartitions = []
         for u in inTransit:
             if u not in receivedPartitionSet:
@@ -125,7 +130,10 @@ def recvFromServer():
         try:
             reply = UDPsocket.recvfrom(bufferSize)
             reply = reply[0].decode()
+            # print("the reply is ", reply)
+            # print("received a reply, the repy is  ",reply)
             if not re.fullmatch(r"Size:\s+\d+\n\n", reply):
+
                 offset = re.search(r"Offset:\s+(\d+)", reply).group(1)
                 numBytes = re.search(r"NumBytes:\s+(\d+)", reply).group(1)
                 data =  re.search(r"(?:NumBytes:\s+\d+|Squished)\n\n(.*)", reply, re.DOTALL).group(1)
@@ -140,8 +148,9 @@ def recvFromServer():
                 #     print("it is locked")
                 with inTransitlock:
                     inTransit.remove(int(offset)//maxbytes)
-                    print("received a reply and removing the partition from intransit function")
+                    # print("received a reply and removing the partition from intransit function")
                 print("recv partition set: ", len(receivedPartitionSet))
+                rateIncrease()
             # print("InTransit: ", inTransit)
         except:
             continue
@@ -196,18 +205,18 @@ if __name__ == "__main__":
 
     #Initialize a send to server thread
     sendThread = threading.Thread(target=sendToSever)
-    rateIncreaseThread = threading.Thread(target=rateIncrease)
+    # rateIncreaseThread = threading.Thread(target=rateIncrease)
     start_time = time.time()
     # print("printing start time", start_time)
     sendThread.start()
     #Initialize a recv from server thread
     recvThread = threading.Thread(target=recvFromServer)
     recvThread.start()
-    rateIncreaseThread.start()
+    # rateIncreaseThread.start()
 
     sendThread.join()
     recvThread.join()
-    rateIncreaseThread.join()
+    # rateIncreaseThread.join()
     
     finalString = "".join(receivedPartitions)
     # print(len(receivedPartitions))
