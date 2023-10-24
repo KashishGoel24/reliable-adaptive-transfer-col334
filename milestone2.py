@@ -5,9 +5,10 @@ import time
 import hashlib
 import math
 import random
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
-server = "10.17.6.5"
+# server = "127.0.0.1"
+server = "10.17.51.115"
 port = 9801
 serverAddressPort = (server, port)
 bufferSize = 4096
@@ -20,23 +21,34 @@ reply_time = []
 reply_offset = []
 re_request_offset = []
 re_request_time = []
+rttEstimates = []
+rates = []
+rate_times = []
 
 inTransitSize = 4
-rateSize = 50
+rateSize = 200
 rateUpperLimit = 10000
 rate = 1/rateSize #time b/w diff messages in seconds
 timescalled = 0
 timesrandom = 0
 squishState = False
 squishFactor = 5
-
 timeout = 0.05  # the time to wait to loop through the inTransit set again
-lastReceivedPartiitonSetSize = 0
+lastReceivedPartitionSetSize = 0
+estimatedRTT = 0
+devRTT = 0
+alpha = 0.125
+beta = 0.125
+
+# 6398 , 107 - incrementing size after every ack
+# 15349 , 0 - incrementing size after receiving n new acks where n = rate size
+# 7772 , 0 - incrementing size after receiving n new acks where n = intransit size
 
 def sendSizeReq():
-    global UDPsocket, sizeflag
+    global UDPsocket, sizeflag, sendsizeStartTime
     while (sizeflag == False):
         try:
+            sendsizeStartTime = time.time()
             print("Sending SendSize")
             UDPsocket.sendto(b"SendSize\nReset\n\n", serverAddressPort)
             time.sleep(0.1)
@@ -44,11 +56,14 @@ def sendSizeReq():
             continue
 
 def recvSizeReq():
-    global UDPsocket, sizeflag, totalsize, bufferSize
+    global UDPsocket, sizeflag, totalsize, bufferSize, sendsizeStartTime, rttEstimates
     while (sizeflag == False):
         try:
+            estimatedRTT = time.time() - sendsizeStartTime
             reply = UDPsocket.recvfrom(bufferSize)
             print("Receieved SendSize")
+            rttEstimates.append(estimatedRTT)
+            # print(sendsizeStartTime, time.time(),estimatedRTT)
             totalsize = int(re.search(r"Size:\s+(\d+)", reply[0].decode()).group(1))
             sizeflag = True
             break
@@ -66,13 +81,16 @@ def getTotalSize():
     recvThread.join()
 
 def rateIncrease():
-    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartiitonSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor
+    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartitionSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor, rates, rate_times
     # print("running this functionnnnnnnnnn")
-    # lastCount = 0
     # while True:
     if (squishState):
-        rate = 1/rateSize*squishFactor
-    elif (len(inTransit) <= inTransitSize):
+        rate = (1/rateSize)*squishFactor
+        # time.sleep(0.04)
+        # print("the squished rate has been used")
+    elif (len(inTransit) <= inTransitSize and (len(receivedPartitionSet) - lastReceivedPartitionSetSize) % inTransitSize == 0):
+    # elif (len(inTransit) <= inTransitSize):
+        lastReceivedPartitionSetSize = len(receivedPartitionSet)
         if (rateSize < rateUpperLimit ):
             rateSize += 1
             rate = 1/rateSize 
@@ -84,33 +102,27 @@ def rateIncrease():
                 rate = 1/rateSize
                 timesrandom += 1
             timescalled += 1
-        # print("length of received partition set ",len(receivedPartitionSet)," last count is ",lastCount)
-        # print("length of the receied partiiton set is ",len(receivedPartitionSet)," last received partition set size is ",lastReceivedPartiitonSetSize)
-        # if ((len(receivedPartitionSet) - lastReceivedPartiitonSetSize) % inTransitSize == 0) and (len(inTransit) <= inTransitSize) and (len(receivedPartitionSet) != 0): 
-        #     lastReceivedPartiitonSetSize = len(receivedPartitionSet)
-        #     # with inTransitlock:
-        #     inTransitSize += 1
-        #     print("rate increased new rate from ",rate, " to ", 1/inTransitSize)
-        #     print("new intranit window size ",inTransitSize)
-        #     rate = 1/inTransitSize
-        # if len(remainingPartitions) == 0:
-        #     break
-        # time.sleep(0.1)
+    rates.append(rateSize)
+    rate_times.append(time.time()-start_time)
 
 def sendToSever(): 
-    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout, rateSize, rateUpperLimit, squishFactor, squishState
+    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times
     inTransit = set()
-    burn = []
+    requestsTime = {}
+    # burn = []
     while (len(remainingPartitions) > 0 ):
-        for u in remainingPartitions:
+        k = len(remainingPartitions) - 1
+        while k >= 0:
+            u = remainingPartitions[k]
             # print("running rate of sending request rn is ",rate)
             print("running rateSize is ", rateSize, "squish mode is ", squishState)
             # print("inTransit window maximum size allowed ",inTransitSize)
             print("Curr intransit size: ", len(inTransit))
+            print("current size of remaining partitions set ",len(remainingPartitions))
             # print("printing the length of the list of remaining partititions : ", len(remainingPartitions))
             
             if len(inTransit) > inTransitSize:
-                burn.append(u)
+                # burn.append(u)
                 for j in range (1):
                     if (len(inTransit) > inTransitSize):
                         inTransitList = []
@@ -121,6 +133,7 @@ def sendToSever():
                             if (len(inTransit) <= inTransitSize):
                                 break
                             begin = time.time()
+                            requestsTime[u] = begin
                             message = f"Offset: {i*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*i))}\n\n"
                             UDPsocket.sendto(message.encode(), serverAddressPort)
                             end = time.time()
@@ -135,34 +148,41 @@ def sendToSever():
                         rateSize = 1
                     rate = 1/rateSize
                     if (squishState == True):
-                        rate = 1/rateSize*squishFactor
+                        rate = (1/rateSize)*squishFactor
+                        time.sleep(0.04)
+                    rates.append(rateSize)
+                    rate_times.append(time.time()-start_time)
                     print("rate is being decreasedddddddddddddddd", rateSize, rate)
             
             else:
                 begin = time.time()
+                requestsTime[u] = begin
                 message = f"Offset: {u*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*u))}\n\n"
                 UDPsocket.sendto(message.encode(), serverAddressPort)
                 with inTransitlock:
                     inTransit.add(u)
             
                 end = time.time()
+                k -= 1
+                remainingPartitions.pop()
                 # if (len(remainingPartitions) == 1):
                 #     time.sleep(0.1)
                 if (end-begin < rate):
                     time.sleep(rate-(end-begin))
-        remainingPartitions = []
+
+        # remainingPartitions = []
         for u in inTransit:
             if u not in receivedPartitionSet:
-                re_request_offset.append(u*maxbytes)
-                re_request_time.append(time.time()-start_time)
+                # re_request_offset.append(u*maxbytes)
+                # re_request_time.append(time.time()-start_time)
                 remainingPartitions.append(u)
-        for u in burn:
-            if u not in receivedPartitionSet:
-                remainingPartitions.append(u)
+        # for u in burn:
+        #     if u not in receivedPartitionSet:
+        #         remainingPartitions.append(u)
     print("send exited")
 
 def recvFromServer():
-    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState
+    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState, requestsTime, alpha, estimatedRTT, rttEstimates, remainingPartitions, devRTT, beta
     receivedPartitions = ["" for i in range(math.ceil(totalsize/maxbytes))]
     receivedPartitionSet = set()
     while (len(receivedPartitionSet) < math.ceil(totalsize/maxbytes)):
@@ -177,6 +197,14 @@ def recvFromServer():
                 numBytes = re.search(r"NumBytes:\s+(\d+)", reply).group(1)
                 data =  re.search(r"(?:NumBytes:\s+\d+|Squished)\n\n(.*)", reply, re.DOTALL).group(1)
                 receivedPartitions[int(offset)//maxbytes] = data
+
+                sampleRTT = time.time() - requestsTime[int(offset)//maxbytes]
+                estimatedRTT = (1-alpha)*estimatedRTT + alpha*sampleRTT
+                devRTT = (1-beta)*devRTT + beta*(abs(estimatedRTT-sampleRTT))
+                del requestsTime[int(offset)//maxbytes]
+                # print("priting the length of requests time ",len(requestsTime))
+                rttEstimates.append(estimatedRTT)
+                # print("the new estimate of rtt is ",estimatedRTT)
                 # if (time.time() - start_time <= 0.5):
                 #     reply_offset.append(int(offset))
                 #     reply_time.append(time.time() - start_time)
@@ -188,7 +216,7 @@ def recvFromServer():
                 with inTransitlock:
                     inTransit.remove(int(offset)//maxbytes)
                     # print("received a reply and removing the partition from intransit function")
-                # print("recv partition set: ", len(receivedPartitionSet))
+                print("recv partition set: ", len(receivedPartitionSet))
                 if ("Squished" in reply):
                     squishState = True
                 else:
@@ -203,6 +231,17 @@ def recvFromServer():
     print("Times rateSize > UpperLimit ", timescalled)
     print("Times random increase ", timesrandom)
     print("recv exited")
+    # print("size of received partition set ",len(receivedPartitionSet), " the lenght of remaining partitions set ",len(remainingPartitions))
+    # print("following are the elements in remaining partitions ")
+    # for i in remainingPartitions:
+    #     print(i)
+    # print("following are the elements present in intransit")
+    # for i in inTransit:
+    #     print(i)
+    # print("rtt estimates done are as follows: ",rttEstimates)
+    print("average rtt is ",sum(rttEstimates)/len(rttEstimates))
+    print("dev rtt is ", devRTT)
+    print("hence the timeout must be ",4*devRTT + sum(rttEstimates)/len(rttEstimates))
 
 def sendFinalHash(hash):
     global UDPsocket, finalflag
@@ -280,12 +319,17 @@ if __name__ == "__main__":
     submitFinal(md5_hash)
     UDPsocket.close()
 
+    # print("the rates used to obtain the data in the server were ",rates)
+    print("average rate used by the server ",sum(rates)/len(rates))
+
+
+    plt.plot(rate_times, rates, label = "rates vs rate_times")
     # plt.scatter(request_time,request_offset, label =  "Request time against offset", color = 'blue')
     # plt.scatter(reply_time, reply_offset, label =  "Reply time against offset", color = 'orange')
     # plt.scatter(re_request_time,re_request_offset, label = "Offsets for which requests were sent again", color = 'green')
-    # plt.xlabel('Time')
-    # plt.ylabel('Offset')
-    # plt.title('Sequence number trace')
-    # plt.legend()
-    # plt.show()
+    plt.xlabel('Time')
+    plt.ylabel('Offset')
+    plt.title('Sequence number trace')
+    plt.legend()
+    plt.show()
     # plt.savefig('my_plot.png')
