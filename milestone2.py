@@ -5,7 +5,7 @@ import time
 import hashlib
 import math
 import random
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 # server = "127.0.0.1"
 server = "10.17.51.115"
@@ -323,13 +323,13 @@ if __name__ == "__main__":
     print("average rate used by the server ",sum(rates)/len(rates))
 
 
-    plt.plot(rate_times, rates, label = "rates vs rate_times")
+    # plt.plot(rate_times, rates, label = "rates vs rate_times")
     # plt.scatter(request_time,request_offset, label =  "Request time against offset", color = 'blue')
     # plt.scatter(reply_time, reply_offset, label =  "Reply time against offset", color = 'orange')
     # plt.scatter(re_request_time,re_request_offset, label = "Offsets for which requests were sent again", color = 'green')
-    plt.xlabel('Time')
-    plt.ylabel('Offset')
-    plt.title('Sequence number trace')
-    plt.legend()
-    plt.show()
+    # plt.xlabel('Time')
+    # plt.ylabel('Offset')
+    # plt.title('Sequence number trace')
+    # plt.legend()
+    # plt.show()
     # plt.savefig('my_plot.png')
