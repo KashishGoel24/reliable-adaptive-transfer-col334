@@ -7,9 +7,9 @@ import math
 import random
 import matplotlib.pyplot as plt
 
-server = "127.0.0.1"
 # server = "10.17.6.5"
-# server = "vayu.iitd.ac.in"
+server = "vayu.iitd.ac.in"
+# server = "127.0.0.1"
 port = 9801
 serverAddressPort = (server, port)
 bufferSize = 4096
@@ -28,9 +28,9 @@ rate_sizes = []
 rate_times = []
 squishTime = []
 
-inTransitSize = 4
-rateSize = 200
-rateUpperLimit = 10000
+inTransitSize = 2
+rateSize = 250
+rateUpperLimit = 500
 rate = 1/rateSize #time b/w diff messages in seconds
 timescalled = 0
 timesrandom = 0
@@ -44,6 +44,8 @@ alpha = 0.125
 beta = 0.125
 lastreduce = time.time()
 squishfirst = True
+upperFactor = 0.7
+originalUpper = rateUpperLimit
 
 def sendSizeReq():
     global UDPsocket, sizeflag, sendsizeStartTime
@@ -82,7 +84,7 @@ def getTotalSize():
     recvThread.join()
 
 def rateIncrease():
-    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartitionSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor, rates, rate_times, rate_sizes
+    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartitionSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor, rates, rate_times, rate_sizes, upperFactor
     # print("running this functionnnnnnnnnn")
     # while True:
     if (squishState):
@@ -93,14 +95,22 @@ def rateIncrease():
     # elif (len(inTransit) <= inTransitSize and (len(receivedPartitionSet) - lastReceivedPartitionSetSize) % inTransitSize == 0):
     elif (len(inTransit) <= inTransitSize):
         lastReceivedPartitionSetSize = len(receivedPartitionSet)
-        # if (rateSize < rateUpperLimit ):
-        rateSize += 1
-        rateSize = min(250,rateSize)
+        if (rateSize < rateUpperLimit*upperFactor ):
+            rateSize += 1
+            rate = 1/rateSize 
+        else:
+            print("rate upper limit ", rateUpperLimit, upperFactor)
+            probability = 0.005
+            randomNum = random.random()
+            if randomNum < probability:
+                rateSize += 1
+                rate = 1/rateSize
+                timesrandom += 1
+
         # if rateSize > 325:
         #     randomNum = random.random()
         #     if randomNum > 0.001:
         #         rateSize -= 1
-        rate = 1/rateSize 
         # else:
         #     randomNum = random.random()
         #     # if rateSize < 300:
@@ -122,7 +132,7 @@ def rateIncrease():
     rate_times.append(time.time()-start_time)
 
 def sendToSever(): 
-    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, rate_sizes, lastreduce
+    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, rate_sizes, lastreduce, upperFactor, originalUpper
     inTransit = set()
     requestsTime = {}
     # burn = []
@@ -139,7 +149,7 @@ def sendToSever():
             
             if len(inTransit) > inTransitSize:
                 # burn.append(u)
-                for j in range (1):
+                for j in range (2):
                     if (len(inTransit) > inTransitSize):
                         inTransitList = []
                         with inTransitlock:
@@ -162,8 +172,19 @@ def sendToSever():
                 if len(inTransit) > inTransitSize and (time.time() - lastreduce >= 0.05):
                 # if len(inTransit) > inTransitSize:
                     lastreduce = time.time()
-                    rateUpperLimit = rateSize
-                    rateSize //= 1.5
+                    if rateUpperLimit != 10000:
+                            if rateSize <= rateUpperLimit*0.45 and (time.time() - lastreduce >= 1):
+                                rateUpperLimit = rateSize*1.5
+                                upperFactor = 0.9
+                                print("rate upper limit ", rateUpperLimit)
+                            else:
+                                rateSize = max(originalUpper*0.3, rateSize)
+                                print("rate upper limit ", rateUpperLimit)
+                                upperFactor -= 0.04
+                    else:
+                        rateUpperLimit = rateSize
+                        originalUpper = rateUpperLimit
+                    rateSize = max(rateSize//1.5, originalUpper*0.3)
                     if rateSize == 0:
                         rateSize = 1
                     rate = 1/rateSize
