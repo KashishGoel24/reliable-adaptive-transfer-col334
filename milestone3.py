@@ -7,10 +7,9 @@ import math
 import random
 import matplotlib.pyplot as plt
 
-server = "10.17.7.134"
-# server = "vayu.iitd.ac.in"
 # server = "127.0.0.1"
-port = 9801
+server = "10.17.6.5"
+port = 9802
 serverAddressPort = (server, port)
 bufferSize = 4096
 UDPsocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
@@ -28,24 +27,27 @@ rate_sizes = []
 rate_times = []
 squishTime = []
 
-inTransitSize = 2
-rateSize = 250
-rateUpperLimit = 500
+inTransitSize = 4
+rateSize = 100
+rateUpperLimit = 10000
+currhigh = 10000
+currhighcount = 0
 rate = 1/rateSize #time b/w diff messages in seconds
 timescalled = 0
 timesrandom = 0
 squishState = False
 squishFactor = 5
-# timeout = 0.05  # the time to wait to loop through the inTransit set again
+timeout = 0.05  # the time to wait to loop through the inTransit set again
 lastReceivedPartitionSetSize = 0
 estimatedRTT = 0
 devRTT = 0
 alpha = 0.125
 beta = 0.125
 lastreduce = time.time()
-squishfirst = True
-upperFactor = 0.7
-originalUpper = rateUpperLimit
+
+# 6398 , 107 - incrementing size after every ack
+# 15349 , 0 - incrementing size after receiving n new acks where n = rate size
+# 7772 , 0 - incrementing size after receiving n new acks where n = intransit size
 
 def sendSizeReq():
     global UDPsocket, sizeflag, sendsizeStartTime
@@ -84,45 +86,41 @@ def getTotalSize():
     recvThread.join()
 
 def rateIncrease():
-    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartitionSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor, rates, rate_times, rate_sizes, upperFactor
+    global start_time, inTransit, inTransitSize, rate, remainingPartitions, inTransitlock, receivedPartitionSet, lastReceivedPartitionSetSize, rateSize, timescalled, timesrandom, squishState, squishFactor, rates, rate_times, currhighcount
     # print("running this functionnnnnnnnnn")
     # while True:
+    randomNum = random.random()
     if (squishState):
-        # rateSize //= squishFactor
         rate = (1/rateSize)*squishFactor
         # time.sleep(0.04)
         # print("the squished rate has been used")
-    elif (len(inTransit) <= inTransitSize and (len(receivedPartitionSet) - lastReceivedPartitionSetSize) % inTransitSize == 0):
+    elif (len(inTransit) <= inTransitSize and ((rateUpperLimit == 10000 and randomNum < 0.2) or randomNum < 0.3)):
     # elif (len(inTransit) <= inTransitSize):
-        lastReceivedPartitionSetSize = len(receivedPartitionSet)
-        if (rateSize < rateUpperLimit*upperFactor ):
-            rateSize += 1
-            rate = 1/rateSize 
-        else:
-            print("rate upper limit ", rateUpperLimit, upperFactor)
-            probability = 0.005
+        if (currhighcount >= 2):
             randomNum = random.random()
-            if randomNum < probability:
+            if (rateSize < currhigh*0.93):
+                if (randomNum < 0.7):
+                    rateSize += 1
+                    rate = 1/rateSize
+            else:
+                if (randomNum < 0.03):
+                    rateSize += 1
+                    rate = 1/rateSize
+        else:
+            if (rateSize < 0.9*rateUpperLimit):
                 rateSize += 1
-                rate = 1/rateSize
-                timesrandom += 1
-
-        # if rateSize > 325:
-        #     randomNum = random.random()
-        #     if randomNum > 0.001:
-        #         rateSize -= 1
-        # else:
-        #     randomNum = random.random()
-        #     # if rateSize < 300:
-        #     #     probability = 0.2
-        #     # else:
-        #     #     probability = 0.1
-        #     probability = 0.1
-        #     if randomNum < probability:
-        #         rateSize += 1
-        #         rate = 1/rateSize
-        #         timesrandom += 1
-        #     timescalled += 1
+                rate = 1/rateSize 
+            else:
+                randomNum = random.random()
+                if (0.85*rateUpperLimit < rateSize < 0.95*rateUpperLimit):
+                    probability = 0.15
+                else:
+                    probability = 0.03
+                if randomNum < probability:
+                    rateSize += 1
+                    rate = 1/rateSize
+                    timesrandom += 1
+                timescalled += 1
     rate_sizes.append(rateSize)
     if (squishState):
         squishTime.append(1)
@@ -132,7 +130,7 @@ def rateIncrease():
     rate_times.append(time.time()-start_time)
 
 def sendToSever(): 
-    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, rate_sizes, lastreduce, upperFactor, originalUpper
+    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, lastreduce, currhigh, currhighcount
     inTransit = set()
     requestsTime = {}
     # burn = []
@@ -150,64 +148,59 @@ def sendToSever():
             if len(inTransit) > inTransitSize:
                 # burn.append(u)
                 for j in range (2):
-                    if (len(inTransit) > inTransitSize):
+                    if (len(inTransit) > 1):
                         inTransitList = []
                         with inTransitlock:
                             for i in inTransit:
                                 inTransitList.append(i)
                         for i in inTransitList:
-                            if (len(inTransit) <= inTransitSize):
-                                break
                             begin = time.time()
                             requestsTime[u] = begin
                             message = f"Offset: {i*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*i))}\n\n"
                             UDPsocket.sendto(message.encode(), serverAddressPort)
-                            request_time.append(time.time() - start_time)
-                            request_offset.append(i*maxbytes)
                             end = time.time()
                             if (end-begin < rate):
                                 time.sleep(rate-(end-begin))
                     else:
                         break
-                if len(inTransit) > inTransitSize and (time.time() - lastreduce >= 0.05):
-                # if len(inTransit) > inTransitSize:
-                    lastreduce = time.time()
-                    if rateUpperLimit != 10000:
-                            if rateSize <= rateUpperLimit*0.45 and (time.time() - lastreduce >= 1):
-                                rateUpperLimit = rateSize*1.5
-                                upperFactor = 0.9
-                                print("rate upper limit ", rateUpperLimit)
+
+                    if len(inTransit) > 1:
+                        if (time.time() - lastreduce >= 0.3):
+                            if (rateUpperLimit == 10000):
+                                rateUpperLimit = rateSize
+                            if (0.9 <= currhigh/rateSize <= 1.1):
+                                currhighcount += 1
                             else:
-                                rateSize = max(originalUpper*0.3, rateSize)
-                                print("rate upper limit ", rateUpperLimit)
-                                upperFactor -= 0.04
-                    else:
-                        rateUpperLimit = rateSize
-                        originalUpper = rateUpperLimit
-                    rateSize = max(rateSize//1.5, originalUpper*0.3)
-                    if rateSize == 0:
-                        rateSize = 1
-                    rate = 1/rateSize
-                    if (squishState == True):
-                        # rateSize //= squishFactor
-                        rate = (1/rateSize)*squishFactor
-                        # time.sleep(0.04)
-                    rates.append(rate)
-                    rate_sizes.append(rateSize)
-                    if (squishState):
-                        squishTime.append(1)
-                    else:
-                        squishTime.append(0)
-                    rate_times.append(time.time()-start_time)
-                    print("rate is being decreasedddddddddddddddd", rateSize, rate)
+                                currhigh = rateSize
+                                currhighcount = 0
+                            if (currhighcount >= 1):
+                                rateUpperLimit = currhigh
+                                rateSize = min(rateSize, currhigh)*0.85
+                            else:
+                                rateSize //= 1.1
+                            lastreduce = time.time()
+                            if rateSize == 0:
+                                rateSize = 1
+                            rate = 1/rateSize
+                        if (squishState == True):
+                            rate = (1/rateSize)*squishFactor
+                        # rates.append(rateSize)
+                        # rate_times.append(time.time()-start_time)
+                        print("rate is being decreasedddddddddddddddd", rateSize, rate)
             
+                rates.append(rate)
+                rate_sizes.append(rateSize)
+                if (squishState):
+                    squishTime.append(1)
+                else:
+                    squishTime.append(0)
+                rate_times.append(time.time()-start_time)
+
             else:
                 begin = time.time()
                 requestsTime[u] = begin
                 message = f"Offset: {u*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*u))}\n\n"
                 UDPsocket.sendto(message.encode(), serverAddressPort)
-                request_time.append(time.time() - start_time)
-                request_offset.append(u*maxbytes)
                 with inTransitlock:
                     inTransit.add(u)
             
@@ -222,6 +215,8 @@ def sendToSever():
         # remainingPartitions = []
         for u in inTransit:
             if u not in receivedPartitionSet:
+                # re_request_offset.append(u*maxbytes)
+                # re_request_time.append(time.time()-start_time)
                 remainingPartitions.append(u)
         # for u in burn:
         #     if u not in receivedPartitionSet:
@@ -229,7 +224,7 @@ def sendToSever():
     print("send exited")
 
 def recvFromServer():
-    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState, requestsTime, alpha, estimatedRTT, rttEstimates, remainingPartitions, devRTT, beta, squishTime, rateSize, lastreduce, squishfirst
+    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState, requestsTime, alpha, estimatedRTT, rttEstimates, remainingPartitions, devRTT, beta, lastreduce, rateSize, rateUpperLimit
     receivedPartitions = ["" for i in range(math.ceil(totalsize/maxbytes))]
     receivedPartitionSet = set()
     while (len(receivedPartitionSet) < math.ceil(totalsize/maxbytes)):
@@ -251,14 +246,15 @@ def recvFromServer():
                 del requestsTime[int(offset)//maxbytes]
                 # print("priting the length of requests time ",len(requestsTime))
                 rttEstimates.append(estimatedRTT)
+                # print("the new estimate of rtt is ",estimatedRTT)
                 # if (time.time() - start_time <= 0.5):
                 #     reply_offset.append(int(offset))
                 #     reply_time.append(time.time() - start_time)
-
                 reply_offset.append(int(offset))
                 reply_time.append(time.time() - start_time)
-
                 receivedPartitionSet.add(int(offset)//maxbytes)
+                # if inTransitlock.locked():
+                #     print("it is locked")
                 with inTransitlock:
                     inTransit.remove(int(offset)//maxbytes)
                     # print("received a reply and removing the partition from intransit function")
@@ -266,9 +262,9 @@ def recvFromServer():
                 if ("Squished" in reply):
                     squishState = True
                     if squishfirst and (time.time() - lastreduce >= 1.5):
+                        rateUpperLimit = rateSize
                         lastreduce = time.time()
-                        rateSize //= 1.8
-                        rateSize = max(100,rateSize)
+                        rateSize //= 1.5
                         squishfirst = False
                     # print("i am in here")
                     # squishTime.append(time.time()-start_time)
@@ -343,7 +339,7 @@ if __name__ == "__main__":
     inTransitlock = threading.Lock()
     partitions = math.ceil(totalsize/maxbytes)
     print("Partitions: " , partitions)
-    for i in range(partitions-1,-1,-1):
+    for i in range(partitions):
         remainingPartitions.append(i)
 
     #Initialize a send to server thread
@@ -374,7 +370,8 @@ if __name__ == "__main__":
     UDPsocket.close()
 
     # print("the rates used to obtain the data in the server were ",rates)
-    print("average rate used by the server ",sum(rate_sizes)/len(rate_sizes))
+    print("average rate used by the server ",sum(rates)/len(rates))
+
 
     # print("rate array ",rates)
     # plt.plot(rate_times, rates, label = "rates vs rate times", color = "green")
@@ -393,22 +390,18 @@ if __name__ == "__main__":
     # Create a figure and a set of subplots
     fig, ax1 = plt.subplots()
 
-    # Plot the first dataset on the primary y-axis
     ax1.plot(rate_times, rate_sizes, color='green', label='Rate Sizes vs time')
     ax1.set_xlabel('Time')
     ax1.set_ylabel('Rate Sizes', color='green')
     ax1.tick_params(axis='y', labelcolor='green')
 
-    # Create a secondary y-axis
     ax2 = ax1.twinx()
 
-    # Plot the second dataset on the secondary y-axis
     ax2.plot(rate_times, squishTime, color='orange', label='Squish state vs time')
     ax2.set_ylabel('Squish State', color='orange')
     ax2.tick_params(axis='y', labelcolor='orange')
     ax2.set_ylim(-1, 10)
 
-    # Add a legend
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper right')
 

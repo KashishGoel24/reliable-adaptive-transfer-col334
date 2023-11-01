@@ -7,7 +7,7 @@ import math
 
 
 
-server = "127.0.0.1"
+server = "vayu.iitd.ac.in"
 port = 9802
 serverAddressPort = (server, port)
 bufferSize = 4096
