@@ -5,10 +5,11 @@ import time
 import hashlib
 import math
 import random
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 # server = "127.0.0.1"
-server = "10.17.6.5"
+server = "10.17.51.115"
+# server = "vayu.iitd.ac.in"
 port = 9802
 serverAddressPort = (server, port)
 bufferSize = 4096
@@ -22,10 +23,18 @@ reply_offset = []
 re_request_offset = []
 re_request_time = []
 rttEstimates = []
+rttestimates_time = []
+devRTT_array = []
 rates = []
 rate_sizes = []
 rate_times = []
 squishTime = []
+currhigh_array = []
+highCount_array = []
+highhigh_time = []
+inTransitsize_arr = []
+inTransitsizetime = []
+constantIntransit = []
 
 inTransitSize = 4
 rateSize = 100
@@ -61,13 +70,15 @@ def sendSizeReq():
             continue
 
 def recvSizeReq():
-    global UDPsocket, sizeflag, totalsize, bufferSize, sendsizeStartTime, rttEstimates
+    global UDPsocket, sizeflag, totalsize, bufferSize, sendsizeStartTime, rttEstimates, start_time, rttestimates_time, devRTT_array
     while (sizeflag == False):
         try:
             estimatedRTT = time.time() - sendsizeStartTime
             reply = UDPsocket.recvfrom(bufferSize)
             print("Receieved SendSize")
             rttEstimates.append(estimatedRTT)
+            rttestimates_time.append(time.time() - start_time)
+            devRTT_array.append(0)
             # print(sendsizeStartTime, time.time(),estimatedRTT)
             totalsize = int(re.search(r"Size:\s+(\d+)", reply[0].decode()).group(1))
             sizeflag = True
@@ -96,7 +107,7 @@ def rateIncrease():
         # print("the squished rate has been used")
     elif (len(inTransit) <= inTransitSize and ((rateUpperLimit == 10000 and randomNum < 0.2) or randomNum < 0.3)):
     # elif (len(inTransit) <= inTransitSize):
-        if (currhighcount >= 2):
+        if (currhighcount >= 1):
             randomNum = random.random()
             if (rateSize < currhigh*0.93):
                 if (randomNum < 0.7):
@@ -121,22 +132,25 @@ def rateIncrease():
                     rate = 1/rateSize
                     timesrandom += 1
                 timescalled += 1
-    rate_sizes.append(rateSize)
-    if (squishState):
-        squishTime.append(1)
-    else:
-        squishTime.append(0)
-    rates.append(rate)
-    rate_times.append(time.time()-start_time)
+    # rate_sizes.append(rateSize)
+    # if (squishState):
+    #     squishTime.append(1)
+    # else:
+    #     squishTime.append(0)
+    # rates.append(rate)
+    # rate_times.append(time.time()-start_time)
 
 def sendToSever(): 
-    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, lastreduce, currhigh, currhighcount
+    global remainingPartitions, UDPsocket, inTransit, maxbytes, rate, receivedPartitionSet, totalsize, start_time, inTransitlock, inTransitSize, timeout, rateSize, rateUpperLimit, squishFactor, squishState, requestsTime, rates, rate_times, lastreduce, currhigh, currhighcount, currhigh_array, highCount_array, highhigh_time
     inTransit = set()
     requestsTime = {}
     # burn = []
     while (len(remainingPartitions) > 0 ):
         k = len(remainingPartitions) - 1
         while k >= 0:
+            # inTransitsize_arr.append(len(inTransit))
+            # inTransitsizetime.append(time.time() - start_time)
+            # constantIntransit.append(inTransitSize)
             u = remainingPartitions[k]
             # print("running rate of sending request rn is ",rate)
             print("running rateSize is ", rateSize, "squish mode is ", squishState)
@@ -158,6 +172,9 @@ def sendToSever():
                             requestsTime[u] = begin
                             message = f"Offset: {i*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*i))}\n\n"
                             UDPsocket.sendto(message.encode(), serverAddressPort)
+                            # if time.time() - start_time <= 0.5:
+                            # request_time.append(time.time() - start_time)
+                            # request_offset.append(u*maxbytes)
                             end = time.time()
                             if (end-begin < rate):
                                 time.sleep(rate-(end-begin))
@@ -188,19 +205,30 @@ def sendToSever():
                         # rate_times.append(time.time()-start_time)
                         print("rate is being decreasedddddddddddddddd", rateSize, rate)
             
-                rates.append(rate)
-                rate_sizes.append(rateSize)
-                if (squishState):
-                    squishTime.append(1)
-                else:
-                    squishTime.append(0)
-                rate_times.append(time.time()-start_time)
+                # rates.append(rate)
+                # rate_sizes.append(rateSize)
+                # if (squishState):
+                #     squishTime.append(1)
+                # else:
+                #     squishTime.append(0)
+                # rate_times.append(time.time()-start_time)
+
+                # if (currhigh != 10000):
+                #     highhigh_time.append(time.time() - start_time)
+                #     currhigh_array.append(currhigh)
+                #     highCount_array.append(currhighcount)
+                # highhigh_time.append(time.time() - start_time)
+                # currhigh_array.append(currhigh)
+                # highCount_array.append(currhighcount)
 
             else:
                 begin = time.time()
                 requestsTime[u] = begin
                 message = f"Offset: {u*maxbytes}\nNumBytes: {min(maxbytes, abs(totalsize-maxbytes*u))}\n\n"
                 UDPsocket.sendto(message.encode(), serverAddressPort)
+                # if time.time()- start_time <= 0.5:
+                request_time.append(time.time() - start_time)
+                request_offset.append(u*maxbytes)
                 with inTransitlock:
                     inTransit.add(u)
             
@@ -212,19 +240,13 @@ def sendToSever():
                 if (end-begin < rate):
                     time.sleep(rate-(end-begin))
 
-        # remainingPartitions = []
         for u in inTransit:
             if u not in receivedPartitionSet:
-                # re_request_offset.append(u*maxbytes)
-                # re_request_time.append(time.time()-start_time)
                 remainingPartitions.append(u)
-        # for u in burn:
-        #     if u not in receivedPartitionSet:
-        #         remainingPartitions.append(u)
     print("send exited")
 
 def recvFromServer():
-    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState, requestsTime, alpha, estimatedRTT, rttEstimates, remainingPartitions, devRTT, beta, lastreduce, rateSize, rateUpperLimit
+    global UDPsocket, receivedPartitionSet, inTransit, receivedPartitions, maxbytes, totalsize, start_time, inTransitlock, timescalled, timesrandom, squishState, requestsTime, alpha, estimatedRTT, rttEstimates, remainingPartitions, devRTT, beta, lastreduce, rateSize, rateUpperLimit, devRTT_array, rttestimates_time
     receivedPartitions = ["" for i in range(math.ceil(totalsize/maxbytes))]
     receivedPartitionSet = set()
     while (len(receivedPartitionSet) < math.ceil(totalsize/maxbytes)):
@@ -244,8 +266,9 @@ def recvFromServer():
                 estimatedRTT = (1-alpha)*estimatedRTT + alpha*sampleRTT
                 devRTT = (1-beta)*devRTT + beta*(abs(estimatedRTT-sampleRTT))
                 del requestsTime[int(offset)//maxbytes]
-                # print("priting the length of requests time ",len(requestsTime))
                 rttEstimates.append(estimatedRTT)
+                # devRTT_array.append(devRTT)
+                # rttestimates_time.append(time.time() - start_time)
                 # print("the new estimate of rtt is ",estimatedRTT)
                 # if (time.time() - start_time <= 0.5):
                 #     reply_offset.append(int(offset))
@@ -332,6 +355,7 @@ if __name__ == "__main__":
     global totalsize, remainingPartitions, maxbytes, start_time, inTransitlock
     maxbytes = 1448 #given
     #Initialize a get total size
+    start_time = time.time()
     getTotalSize() #implement reliable size transfer
     # print(totalsize)
     print("Total Size:" , totalsize) 
@@ -344,23 +368,15 @@ if __name__ == "__main__":
 
     #Initialize a send to server thread
     sendThread = threading.Thread(target=sendToSever)
-    # rateIncreaseThread = threading.Thread(target=rateIncrease)
-    start_time = time.time()
-    # print("printing start time", start_time)
     sendThread.start()
     #Initialize a recv from server thread
     recvThread = threading.Thread(target=recvFromServer)
     recvThread.start()
-    # rateIncreaseThread.start()
 
     sendThread.join()
     recvThread.join()
-    # rateIncreaseThread.join()
     
     finalString = "".join(receivedPartitions)
-    # print(len(receivedPartitions))
-    # with open("finaloutput.txt", "w") as file:
-    #     file.write(finalString)
 
     md5 = hashlib.md5()
     md5.update(finalString.encode())
@@ -370,16 +386,10 @@ if __name__ == "__main__":
     UDPsocket.close()
 
     # print("the rates used to obtain the data in the server were ",rates)
-    print("average rate used by the server ",sum(rates)/len(rates))
+    # print("average rate used by the server ",sum(rates)/len(rates))
 
-
-    # print("rate array ",rates)
-    # plt.plot(rate_times, rates, label = "rates vs rate times", color = "green")
-    # plt.plot(rate_times,squishTime, label = "squished satate - 0 or 1")
-    # plt.plot(rate_times,rate_sizes, label = "rate size vs rate times", color = "orange")
     # plt.scatter(request_time,request_offset, label =  "Request time against offset", color = 'blue')
     # plt.scatter(reply_time, reply_offset, label =  "Reply time against offset", color = 'orange')
-    # plt.scatter(re_request_time,re_request_offset, label = "Offsets for which requests were sent again", color = 'green')
     # plt.xlabel('Time')
     # plt.ylabel('Offset')
     # plt.title('Sequence number trace')
@@ -387,24 +397,86 @@ if __name__ == "__main__":
     # plt.show()
     # plt.savefig('my_plot.png')
 
+    # plt.plot(rttestimates_time,rttEstimates, label =  "Calculated value of RTT against time", color = 'green')
+    # plt.xlabel('Time')
+    # plt.ylabel('RTT Value estimated')
+    # plt.title('RTT Estimation using EWMA')
+    # plt.legend()
+    # plt.show()
+    # plt.savefig('my_plot.png')
+
+    # plt.plot(rttestimates_time,devRTT_array, label =  "Calculated value of Deviation RTT against time", color = 'yellow')
+    # plt.xlabel('Time')
+    # plt.ylabel('Deviation RTT Value estimated')
+    # plt.title('RTT and Deviation RTT Estimation using EWMA')
+    # plt.legend()
+    # plt.show()
+    # plt.savefig('my_plot.png')
+
     # Create a figure and a set of subplots
-    fig, ax1 = plt.subplots()
+    # fig, ax1 = plt.subplots()
 
-    ax1.plot(rate_times, rate_sizes, color='green', label='Rate Sizes vs time')
-    ax1.set_xlabel('Time')
-    ax1.set_ylabel('Rate Sizes', color='green')
-    ax1.tick_params(axis='y', labelcolor='green')
+    # ax1.plot(rate_times, rate_sizes, color='green', label='Rate sizes vs time')
+    # ax1.set_xlabel('Time')
+    # ax1.set_ylabel('Rate Size', color='green')
+    # ax1.tick_params(axis='y', labelcolor='green')
 
-    ax2 = ax1.twinx()
+    # ax2 = ax1.twinx()
 
-    ax2.plot(rate_times, squishTime, color='orange', label='Squish state vs time')
-    ax2.set_ylabel('Squish State', color='orange')
-    ax2.tick_params(axis='y', labelcolor='orange')
-    ax2.set_ylim(-1, 10)
+    # ax2.plot(rate_times, squishTime, color='orange', label='Squish state vs time')
+    # ax2.set_ylabel('Squish State', color='orange')
+    # ax2.tick_params(axis='y', labelcolor='orange')
+    # ax2.set_ylim(-1, 10)
 
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='upper right')
+    # ax1.legend(loc='upper left')
+    # ax2.legend(loc='upper right')
 
-    plt.title("Rate size trace along with squish state for constant rate server")
+    # plt.title("Rate Size trace along with squish state for variable rate server")
 
-    plt.show()
+    # plt.show()
+
+
+    # for current high and high count
+    # fig, ax1 = plt.subplots()
+
+    # ax1.plot(highhigh_time, currhigh_array, color='green', label='Current High vs time')
+    # ax1.set_xlabel('Time')
+    # ax1.set_ylabel('Current High', color='green')
+    # ax1.tick_params(axis='y', labelcolor='green')
+
+    # ax2 = ax1.twinx()
+
+    # ax2.plot(highhigh_time, highCount_array, color='orange', label='Current High Count vs time')
+    # ax2.set_ylabel('Current High Count', color='orange')
+    # ax2.tick_params(axis='y', labelcolor='orange')
+    # # ax2.set_ylim(-1, 10)
+
+    # ax1.legend(loc='upper left')
+    # ax2.legend(loc='upper right')
+
+    # plt.title("Plot of current high and current high count against time")
+
+    # plt.show()
+
+
+    # for intransit size
+    # fig, ax1 = plt.subplots()
+
+    # ax1.plot(inTransitsizetime, inTransitsize_arr, color='green', label='Size of the set inTransit vs time')
+    # ax1.set_xlabel('Time')
+    # ax1.set_ylabel('Size of the set inTransit', color='green')
+    # ax1.tick_params(axis='y', labelcolor='green')
+
+    # ax2 = ax1.twinx()
+
+    # ax2.plot(inTransitsizetime, constantIntransit , color='orange', label='inTransitSize vs time')
+    # ax2.set_ylabel('inTransitSize', color='orange')
+    # ax2.tick_params(axis='y', labelcolor='orange')
+    # ax2.set_ylim(0, max(inTransitsize_arr))
+
+    # ax1.legend(loc='upper left')
+    # ax2.legend(loc='upper right')
+
+    # plt.title("Plot of size of set inTransit against time")
+
+    # plt.show()

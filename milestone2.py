@@ -5,7 +5,7 @@ import time
 import hashlib
 import math
 import random
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 server = "10.17.7.134"
 # server = "vayu.iitd.ac.in"
@@ -391,27 +391,27 @@ if __name__ == "__main__":
     # plt.savefig('my_plot.png')
 
     # Create a figure and a set of subplots
-    fig, ax1 = plt.subplots()
+    # fig, ax1 = plt.subplots()
 
     # Plot the first dataset on the primary y-axis
-    ax1.plot(rate_times, rate_sizes, color='green', label='Rate Sizes vs time')
-    ax1.set_xlabel('Time')
-    ax1.set_ylabel('Rate Sizes', color='green')
-    ax1.tick_params(axis='y', labelcolor='green')
+    # ax1.plot(rate_times, rate_sizes, color='green', label='Rate Sizes vs time')
+    # ax1.set_xlabel('Time')
+    # ax1.set_ylabel('Rate Sizes', color='green')
+    # ax1.tick_params(axis='y', labelcolor='green')
 
     # Create a secondary y-axis
-    ax2 = ax1.twinx()
+    # ax2 = ax1.twinx()
 
     # Plot the second dataset on the secondary y-axis
-    ax2.plot(rate_times, squishTime, color='orange', label='Squish state vs time')
-    ax2.set_ylabel('Squish State', color='orange')
-    ax2.tick_params(axis='y', labelcolor='orange')
-    ax2.set_ylim(-1, 10)
+    # ax2.plot(rate_times, squishTime, color='orange', label='Squish state vs time')
+    # ax2.set_ylabel('Squish State', color='orange')
+    # ax2.tick_params(axis='y', labelcolor='orange')
+    # ax2.set_ylim(-1, 10)
 
     # Add a legend
-    ax1.legend(loc='upper left')
-    ax2.legend(loc='upper right')
+    # ax1.legend(loc='upper left')
+    # ax2.legend(loc='upper right')
 
-    plt.title("Rate size trace along with squish state for constant rate server")
+    # plt.title("Rate size trace along with squish state for constant rate server")
 
-    plt.show()
+    # plt.show()
